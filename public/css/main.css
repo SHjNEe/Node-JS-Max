@@ -249,3 +249,6 @@ form {
     display: none;
   }
 }
+.mt-4 {
+  margin-top: 10px;
+}
