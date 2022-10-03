@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
 const sendgridTransport = require("nodemailer-sendgrid-transport");
+const { validationResult } = require("express-validator/check");
 
 const transporter = nodemailer.createTransport(
   sendgridTransport({
@@ -18,30 +19,64 @@ exports.getLogin = (req, res, next) => {
     pageTitle: "Login",
     isAuthenticated: false,
     errorMessage: req.flash("error"),
+    oldInput: {
+      email: "",
+      password: "",
+    },
+    validationError: [],
   });
 };
 
 exports.postLogin = (req, res, next) => {
   const email = req.body.email;
   const password = req.body.password;
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.render("auth/login", {
+      path: "/login",
+      pageTitle: "Login",
+      errorMessage: errors.array()[0].msg,
+      oldInput: {
+        email: email,
+        password: password,
+      },
+      validationError: errors.array(),
+    });
+  }
   User.findOne({ email: email }).then((user) => {
     if (!user) {
-      req.flash("error", "Invalid email !");
-      return res.redirect("/login");
+      return res.render("auth/login", {
+        path: "/login",
+        pageTitle: "Login",
+        errorMessage: "Email is not used !",
+        oldInput: {
+          email: email,
+          password: password,
+        },
+        validationError: errors.array(),
+      });
     }
     bcrypt
       .compare(password, user.password)
       .then((match) => {
-        if (match) {
-          req.session.isLoggedIn = true;
-          req.session.user = user;
-          return req.session.save((err) => {
-            console.log(err);
-            res.redirect("/");
+        if (!match) {
+          return res.render("auth/login", {
+            path: "/login",
+            pageTitle: "Login",
+            errorMessage: "Password is wrong!",
+            oldInput: {
+              email: email,
+              password: password,
+            },
+            validationError: errors.array(),
           });
         }
-        req.flash("error", "Invalid password !");
-        res.redirect("/login");
+        req.session.isLoggedIn = true;
+        req.session.user = user;
+        return req.session.save((err) => {
+          console.log(err);
+          res.redirect("/");
+        });
       })
       .catch((err) => res.redirect("/login"));
   });
@@ -52,6 +87,12 @@ exports.getSignup = (req, res, next) => {
     path: "/sigup",
     pageTitle: "Sign up",
     errorMessage: req.flash("error"),
+    oldInput: {
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+    validationError: [],
   });
 };
 
@@ -60,23 +101,34 @@ exports.postSignup = (req, res, next) => {
   const email = req.body.email;
   const password = req.body.password;
   const confirmPassword = req.body.confirmPassword;
-  User.findOne({ email: email })
-    .then((docData) => {
-      if (docData) {
-        req.flash("error", "Email is exist !");
+  console.log(validationResult(req));
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(422).render("auth/signup", {
+      path: "/sigup",
+      pageTitle: "Sign up",
+      errorMessage: errors.array()[0].msg,
+      oldInput: {
+        email: email,
+        password: password,
+        confirmPassword: confirmPassword,
+      },
+      validationError: errors.array(),
+    });
+  }
 
-        return res.redirect("/signup");
-      }
-      return bcrypt.hash(password, 12).then((hashedPassword) => {
-        const user = new User({
-          name,
-          email,
-          password: hashedPassword,
-          cart: { items: [] },
-        });
-        return user.save();
+  bcrypt
+    .hash(password, 12)
+    .then((hashedPassword) => {
+      const user = new User({
+        name,
+        email,
+        password: hashedPassword,
+        cart: { items: [] },
       });
+      return user.save();
     })
+
     .then((result) => {
       res.redirect("/login");
       return transporter.sendMail({
